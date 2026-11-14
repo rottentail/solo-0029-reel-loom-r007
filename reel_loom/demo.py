@@ -14,7 +14,8 @@ from .client import Client
 from .errors import LoomError, require
 
 WORKFLOWS = ("ingest", "revisions", "looks", "render", "signal", "waveform", "loudness",
-             "sheet", "captions", "imprint", "cancel-retry", "recovery", "resources", "matrix", "conformance", "lineage")
+             "sheet", "captions", "imprint", "cancel-retry", "recovery", "resources", "matrix",
+             "conformance", "lineage", "redaction")
 
 
 def expect_error(action, code):
@@ -177,6 +178,70 @@ class Walkthrough:
             require(any(n["id"] == imprint["id"] for n in result["nodes"]), "walkthrough_lineage", "Imprint missing from lineage")
             failure = expect_error(lambda: c.request("GET", "/tickets/missing/lineage"), "not_found")
             return {"lineage":result,"failure":failure}
+        if name == "redaction":
+            asset_id = self.asset["id"]
+            document = {"redactions": [
+                {"label": "固定角标", "start": 0.3, "end": 1.4,
+                 "frames": [{"time": 0.3, "x": 0.10, "y": 0.10, "width": 0.25, "height": 0.25}]},
+                {"label": "移动敏感区", "start": 0.2, "end": 2.8,
+                 "frames": [{"time": 0.2, "x": 0.05, "y": 0.55, "width": 0.18, "height": 0.25},
+                            {"time": 2.8, "x": 0.72, "y": 0.55, "width": 0.18, "height": 0.25}]}]}
+            redset = c.request("PUT", f"/assets/{asset_id}/redactions", document, {"If-Match": "0"})
+            require(redset["version"] == 1 and len(redset["document"]["redactions"]) == 2,
+                    "walkthrough_redaction", "Redaction set was not versioned")
+            stale = expect_error(lambda: c.request("PUT", f"/assets/{asset_id}/redactions", document,
+                                                   {"If-Match": "0"}), "revision_conflict")
+            preview = c.request("POST", f"/assets/{asset_id}/redactions/preview", {"version": 1})
+            jpeg = c.request("GET", "/artifacts/"+preview["id"]+"/content", raw=True)
+            require(jpeg.startswith(b"\xff\xd8") and preview["samples"],
+                    "walkthrough_redaction", "Preview must be a JPEG covering every redaction window")
+            # 同一来源在卷内出现两次；引用该来源的镜段都必须独立产生遮挡覆盖。
+            covered = self.app.redactions.coverage(asset_id, 1, self.reel["document"]["slices"])
+            require(len(covered) >= 2 and any(item["slice"] == 1 for item in covered),
+                    "walkthrough_redaction",
+                    "Every slice using the source must independently carry the redaction", count=len(covered))
+            # 音频版式承载不了画面遮挡，入队前全有全无拒绝。
+            audio_reject = expect_error(
+                lambda: c.request("POST", "/tickets",
+                                  {"reel": self.reel["id"], "look": "listening",
+                                   "redactions": {asset_id: 1}}), "redaction_audio")
+            ticket = c.request("POST", "/tickets",
+                               {"reel": self.reel["id"], "look": "preview", "redactions": {asset_id: 1}})
+            require(ticket["snapshot"]["redaction_sets"] == [
+                {"asset": asset_id, "version": 1, "id": redset["id"], "hash": redset["hash"]}],
+                "walkthrough_redaction", "The queued ticket must freeze the redaction version")
+            # 先排空 FIFO 队列中 setup 阶段排队的既有渲染单，再执行本工作流自己的遮挡单。
+            while True:
+                claimed = self.app.tickets.claim()
+                if claimed is None or claimed["id"] == ticket["id"]:
+                    break
+                self.app.renderer.execute(claimed)
+            require(claimed is not None and claimed["id"] == ticket["id"], "walkthrough_redaction",
+                    "The redaction ticket must keep its own frozen place in the queue")
+            self.app.renderer.execute(claimed)
+            finished = self.app.tickets.get(ticket["id"])
+            require(finished["state"] == "succeeded", "walkthrough_redaction",
+                    "Redacted render did not succeed", ticket=finished)
+            artifact = finished["artifacts"][0]
+            require(artifact["metadata"].get("redactions_applied") == len(covered),
+                    "walkthrough_redaction", "Committed rendition must record applied coverage")
+            conformance = c.request("GET", f'/artifacts/{artifact["id"]}/conformance')
+            require(conformance["valid"], "walkthrough_redaction", "Redacted rendition failed full decode")
+            imprint = c.imprint(finished["id"])
+            verified = c.request("GET", f'/imprints/{imprint["id"]}/verify')
+            require(verified["valid"], "walkthrough_redaction", "Redacted imprint must verify")
+            lineage = c.request("GET", f'/tickets/{finished["id"]}/lineage')
+            require(any(n["kind"] == "redaction_set" for n in lineage["nodes"]),
+                    "walkthrough_redaction", "Lineage must record the frozen redaction set")
+            # 修改遮挡形成新版本；已冻结渲染单的指纹与遮挡版本保持不变。
+            changed = {"redactions": [document["redactions"][0]]}
+            version_two = c.request("PUT", f"/assets/{asset_id}/redactions", changed, {"If-Match": "1"})
+            require(version_two["version"] == 2 and finished["snapshot"]["redaction_sets"][0]["version"] == 1,
+                    "walkthrough_redaction", "Editing redactions must not move a frozen ticket")
+            return {"redaction_set": redset, "preview_samples": len(preview["samples"]),
+                    "coverage": len(covered), "ticket": finished["id"],
+                    "redactions_applied": artifact["metadata"]["redactions_applied"],
+                    "failures": [stale, audio_reject]}
         raise ValueError("Unknown walkthrough: " + name)
 
 

@@ -5,10 +5,22 @@ from .probe import select_stream
 
 
 class Planner:
-    def __init__(self, assets, reels, looks):
-        self.assets, self.reels, self.looks = assets, reels, looks
+    def __init__(self, assets, reels, looks, redactions=None):
+        self.assets, self.reels, self.looks, self.redactions = assets, reels, looks, redactions
 
-    def freeze(self, db, reel_id, revision, look_id, version):
+    def _redaction_selection(self, body, db):
+        selection = body.get("redactions", {})
+        require(isinstance(selection, dict), "invalid_redactions", "redactions must be an object of asset versions")
+        resolved = {}
+        for asset_id, version in selection.items():
+            require(isinstance(version, int) and version >= 1, "invalid_redactions",
+                    "Redaction versions must be positive integers", asset=asset_id)
+            redset = self.redactions.get(asset_id, version, db)
+            resolved[asset_id] = redset
+        return resolved
+
+    def freeze(self, db, reel_id, revision, look_id, version, body=None):
+        body = body or {}
         reel = self.reels.get(reel_id, revision, db)
         look = self.looks.get(look_id, version, db)
         closure = {}
@@ -22,11 +34,38 @@ class Planner:
         else:
             require(all(x["metadata"]["has_audio"] for x in closure.values()),
                     "audio_required", "Audio looks require audio in every slice")
+        redaction_selection = self._redaction_selection(body, db) if self.redactions is not None else {}
+        require(not ("redactions" in body and not redaction_selection), "invalid_redactions",
+                "At least one redaction set is required when the field is present")
+        for asset_id in redaction_selection:
+            require(asset_id in closure, "redaction_unrelated",
+                    "A redaction set can only target a source used by this reel", asset=asset_id)
+        if redaction_selection:
+            require(look["spec"]["kind"] == "video", "redaction_audio",
+                    "Visual redactions cannot be applied to audio-only looks", 422)
+        redaction_coverage = []
+        redaction_freeze = []
+        for asset_id, redset in redaction_selection.items():
+            redaction_freeze.append({"asset": asset_id, "version": redset["version"],
+                                     "id": redset["id"], "hash": redset["hash"]})
+            for item in self.redactions.coverage(asset_id, redset["version"], reel["document"]["slices"]):
+                item = {**item, "fit": look["spec"]["fit"],
+                        "source_metadata": self._video_metadata(closure[asset_id]["metadata"])}
+                redaction_coverage.append(item)
+        if redaction_selection:
+            require(redaction_coverage, "redaction_unrelated",
+                    "The selected redaction windows do not overlap any slice in this reel")
+        redaction_coverage.sort(key=lambda x: (x["output_start_tick"], x["redaction"]))
         snapshot = {"schema": 1, "reel": reel_id, "revision": reel["revision"],
                     "reel_hash": reel["hash"], "document": reel["document"],
                     "look": {"id": look["id"], "version": look["version"], "spec": look["spec"], "hash": look["hash"]},
-                    "sources": closure}
+                    "sources": closure,
+                    "redactions": redaction_coverage, "redaction_sets": redaction_freeze}
         return {**snapshot, "fingerprint": digest(snapshot)}
+
+    def _video_metadata(self, metadata):
+        video = select_stream(metadata, "video")
+        return {"width": video["width"], "height": video["height"]}
 
     def compile(self, snapshot, resolve, output):
         spec = snapshot["look"]["spec"]

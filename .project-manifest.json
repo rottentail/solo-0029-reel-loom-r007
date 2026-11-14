@@ -98,6 +98,21 @@
       "responsibility": "reels"
     },
     {
+      "id": "redactions",
+      "path": "reel_loom/redactions.py",
+      "responsibility": "redactions"
+    },
+    {
+      "id": "redaction_preview",
+      "path": "reel_loom/redaction_preview.py",
+      "responsibility": "redaction_preview"
+    },
+    {
+      "id": "redactor",
+      "path": "reel_loom/redactor.py",
+      "responsibility": "redactor"
+    },
+    {
       "id": "rendering",
       "path": "reel_loom/rendering.py",
       "responsibility": "rendering"
@@ -441,6 +456,31 @@
         "tickets",
         "database"
       ]
+    },
+    {
+      "id": "redaction",
+      "name": "时域遮挡层",
+      "entry": "PUT /assets/{id}/redactions + POST /tickets",
+      "success": "来源级随时间遮挡在预览与正式成片中均不可见，同源多镜段独立遮挡，已排队稿件冻结遮挡版本",
+      "failure": "音频版式与非法遮挡拒绝，遮挡处理失败不登记未处理画面",
+      "verification": ".venv/bin/python -m reel_loom.demo --workflow redaction",
+      "steps": [
+        "输入经公开入口到领域规则",
+        "跨媒体或持久化边界提交结果",
+        "回读结果并观察拒绝路径"
+      ],
+      "module_ids": [
+        "api",
+        "redactions",
+        "redaction_preview",
+        "redactor",
+        "planner",
+        "tickets",
+        "rendering",
+        "artifacts",
+        "imprints",
+        "database"
+      ]
     }
   ],
   "complexity": {
@@ -457,7 +497,9 @@
       "capacity",
       "idempotency",
       "lineage",
-      "snapshot_consistency"
+      "snapshot_consistency",
+      "authorization",
+      "coordinate_projection"
     ]
   }
 }

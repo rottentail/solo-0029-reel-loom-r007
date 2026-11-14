@@ -1,4 +1,4 @@
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_info(version INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS blobs(
@@ -26,6 +26,12 @@ CREATE TABLE IF NOT EXISTS cue_tracks(
  id TEXT PRIMARY KEY, asset TEXT NOT NULL REFERENCES assets(id),
  language TEXT NOT NULL, cues TEXT NOT NULL, created REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS redaction_sets(
+ id TEXT PRIMARY KEY, asset TEXT NOT NULL REFERENCES assets(id),
+ version INTEGER NOT NULL, document TEXT NOT NULL,
+ hash TEXT NOT NULL, created REAL NOT NULL, UNIQUE(asset,version)
+);
+CREATE INDEX IF NOT EXISTS redaction_asset ON redaction_sets(asset,version);
 CREATE TABLE IF NOT EXISTS tickets(
  id TEXT PRIMARY KEY, reel TEXT NOT NULL REFERENCES reels(id), revision INTEGER NOT NULL,
  look_id TEXT NOT NULL, look_version INTEGER NOT NULL,

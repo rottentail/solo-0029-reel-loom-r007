@@ -26,6 +26,12 @@ class Lineage:
                 blob_key = add(source["blob"], "blob", {})
                 edges.append({"from": revision, "to": source_key, "relation": "includes"})
                 edges.append({"from": source_key, "to": blob_key, "relation": "content"})
+            for redset in snapshot.get("redaction_sets", []):
+                redaction_key = add(f'redaction:{redset["asset"]}@{redset["version"]}',
+                                    "redaction_set", {"asset": redset["asset"], "version": redset["version"],
+                                                      "hash": redset["hash"]})
+                edges.append({"from": render, "to": redaction_key, "relation": "redacts_with"})
+                edges.append({"from": redaction_key, "to": redset["asset"], "relation": "targets"})
             for artifact in ticket["artifacts"]:
                 key = add(artifact["id"], artifact["kind"], artifact["metadata"])
                 blob_key = add(artifact["blob"], "blob", {})

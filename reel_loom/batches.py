@@ -7,7 +7,7 @@ class RenderBatches:
         self.db, self.planner, self.tickets, self.keys = db, planner, tickets, keys
 
     def submit(self, body, key=None):
-        object_body(body, ("reel", "revision", "looks"), ("reel", "looks"))
+        object_body(body, ("reel", "revision", "looks", "redactions"), ("reel", "looks"))
         looks = body["looks"]
         require(isinstance(looks, list) and 1 <= len(looks) <= 12,
                 "batch_size", "A render matrix requires 1..12 looks")
@@ -20,7 +20,7 @@ class RenderBatches:
                 object_body(item, ("id", "version"), ("id",))
                 if "version" in item:
                     integer(item["version"], "version", 1)
-                snapshot = self.planner.freeze(db, body["reel"], body.get("revision"), item["id"], item.get("version"))
+                snapshot = self.planner.freeze(db, body["reel"], body.get("revision"), item["id"], item.get("version"), body)
                 identity = (snapshot["look"]["id"], snapshot["look"]["version"])
                 require(identity not in identities, "duplicate_look", "A look version cannot repeat within a matrix")
                 identities.add(identity)

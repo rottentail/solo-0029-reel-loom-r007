@@ -41,7 +41,7 @@ class Api:
                 return app.assets.ingest(raw, headers.get("X-Media-Label", "未命名媒体"))
             if method == "GET":
                 return {"items": app.assets.list(query.get("state"))}
-        match = re.fullmatch(r"/assets/([^/]+)(?:/(retire|restore|signal|waveform|loudness|contact-sheet|cues|analyses|artifacts))?", route)
+        match = re.fullmatch(r"/assets/([^/]+)(?:/(retire|restore|signal|waveform|loudness|contact-sheet|cues|analyses|artifacts|redactions|redactions/preview|redactions/history))?", route)
         if match:
             asset_id, action = match.groups()
             if method == "GET" and not action:
@@ -60,6 +60,14 @@ class Api:
                 body = self.json_body(raw)
                 object_body(body, ("language", "srt"), ("language", "srt"))
                 return app.captions.import_track(asset_id, body["language"], body["srt"])
+            if method == "PUT" and action == "redactions":
+                return app.redactions.put(asset_id, self.json_body(raw), self.expected(headers, default=0))
+            if method == "GET" and action == "redactions":
+                return app.redactions.get(asset_id, self.query_integer(query, "version"))
+            if method == "GET" and action == "redactions/history":
+                return {"items": app.redactions.history(asset_id)}
+            if method == "POST" and action == "redactions/preview":
+                return app.redaction_previews.build(asset_id, self.json_body(raw))
         if route == "/reels":
             if method == "GET":
                 return {"items": app.reels.list()}

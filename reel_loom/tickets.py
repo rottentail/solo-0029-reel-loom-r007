@@ -8,13 +8,13 @@ class Tickets:
         self.db, self.planner, self.keys = db, planner, keys
 
     def enqueue(self, body, key=None):
-        object_body(body, ("reel", "revision", "look", "look_version"), ("reel", "look"))
+        object_body(body, ("reel", "revision", "look", "look_version", "redactions"), ("reel", "look"))
         with self.db.write_unit() as db:
             previous = self.keys.replay(db, "tickets", key, body)
             if previous:
                 return previous
             snapshot = self.planner.freeze(db, body["reel"], body.get("revision"),
-                                           body["look"], body.get("look_version"))
+                                           body["look"], body.get("look_version"), body)
             ticket_id, created = identifier("render"), now()
             db.execute("INSERT INTO tickets(id,reel,revision,look_id,look_version,snapshot,fingerprint,state,attempt,created,updated) "
                        "VALUES(?,?,?,?,?,?,?,?,?,?,?)",

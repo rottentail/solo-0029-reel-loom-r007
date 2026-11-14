@@ -18,6 +18,9 @@ from .instance import InstanceLock
 from .batches import RenderBatches
 from .conformance import Conformance
 from .lineage import Lineage
+from .redactions import Redactions
+from .redaction_preview import RedactionPreviews
+from .redactor import Redactor
 
 
 class Application:
@@ -33,7 +36,8 @@ class Application:
             self.reels = Reels(self.db, self.assets, self.keys, settings)
             self.looks = Looks(self.db)
             self.captions = Captions(self.db, self.assets, self.reels)
-            self.planner = Planner(self.assets, self.reels, self.looks)
+            self.redactions = Redactions(self.db, self.assets)
+            self.planner = Planner(self.assets, self.reels, self.looks, self.redactions)
             self.processes = Processes(settings)
             self.tickets = Tickets(self.db, self.planner, self.keys)
             self.artifacts = Artifacts(self.db, self.blobs)
@@ -42,10 +46,14 @@ class Application:
             self.lineage = Lineage(self.db, self.tickets)
             self.analysis = AudioAnalysis(self.db, self.assets, self.blobs, self.processes)
             self.frames = Frames(self.assets, self.blobs, self.processes, self.artifacts)
+            self.redaction_previews = RedactionPreviews(
+                self.db, self.assets, self.blobs, self.processes, self.artifacts, self.redactions)
             self.imprints = Imprints(self.db, self.blobs, self.tickets, self.captions)
             self.resources = Resources(self.db, self.blobs)
             self.recovery = self.tickets.recover()
-            self.renderer = Renderer(settings, self.blobs, self.tickets, self.planner, self.processes, self.artifacts)
+            self.redactor = Redactor(settings)
+            self.renderer = Renderer(settings, self.blobs, self.tickets, self.planner,
+                                     self.processes, self.artifacts, self.redactor)
             if start_workers:
                 self.renderer.start()
         except BaseException:
